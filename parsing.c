@@ -27,6 +27,13 @@ long eval_op(char* op, long x, long y) {
   return 0;
 }
 
+long eval_unary_op(char* op, long x) {
+  if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
+    return -x;
+  }
+  return x;
+}
+
 long eval(mpc_ast_t* t) {
   // If node is a number just return it's value.
   if (strstr(t->tag, "number")) {
@@ -41,6 +48,11 @@ long eval(mpc_ast_t* t) {
   while (strstr(t->children[i]->tag, "expr")) {
     x = eval_op(op, x, eval(t->children[i]));
     i++;
+  }
+  
+  if (i == 3) {
+    // Use unary eval.
+    x = eval_unary_op(op, x);
   }
 
   return x;
