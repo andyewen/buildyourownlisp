@@ -5,10 +5,18 @@
 #include "mpc.h"
 
 long eval_op(char* op, long x, long y) {
-  if (strcmp(op, "+") == 0) { return x + y; }
-  if (strcmp(op, "-") == 0) { return x - y; }
-  if (strcmp(op, "*") == 0) { return x * y; }
-  if (strcmp(op, "/") == 0) { return x / y; }
+  if (strcmp(op, "+") == 0 || strcmp(op, "add") == 0) {
+    return x + y;
+  }
+  if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
+    return x - y;
+  }
+  if (strcmp(op, "*") == 0 || strcmp(op, "mul") == 0) {
+    return x * y;
+  }
+  if (strcmp(op, "/") == 0 || strcmp(op, "div") == 0) {
+    return x / y;
+  }
   return 0;
 }
 
@@ -17,7 +25,7 @@ long eval(mpc_ast_t* t) {
   if (strstr(t->tag, "number")) {
     return atoi(t->contents);
   }
-  
+
   char* op = t->children[1]->contents;
 
   long x = eval(t->children[2]);
