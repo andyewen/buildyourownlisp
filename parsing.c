@@ -5,48 +5,109 @@
 #include <editline/history.h>
 #include "mpc.h"
 
-long eval_op(char* op, long x, long y) {
+/* Lisp value definitions. */
+enum { LVAL_NUM, LVAL_ERR };
+enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
+
+typedef struct {
+  int type;
+  union {
+    long num;
+    int err;
+  } data;
+} lval;
+
+lval lval_num(long x) {
+  lval v;
+  v.type = LVAL_NUM;
+  v.data.num = x;
+  return v;
+}
+
+lval lval_err(int x) {
+  lval v;
+  v.type = LVAL_ERR;
+  v.data.err = x;
+  return v;
+}
+
+void lval_print(lval v) {
+  switch (v.type) {
+    case LVAL_NUM:
+      printf("%li", v.data.num);
+      break;
+
+    case LVAL_ERR:
+      if (v.data.err == LERR_DIV_ZERO) {
+        printf("Error: Division by zero.");
+      }
+      if (v.data.err == LERR_BAD_OP) {
+        printf("Error: Invalid operator.");
+      }
+      if (v.data.err == LERR_BAD_NUM) {
+        printf("Error: Invalid number.");
+      }
+      break;
+  }
+}
+
+void lval_println(lval v) { lval_print(v); putchar('\n'); }
+
+/* Evaluation logic. */
+lval eval_op(char* op, lval x, lval y) {
+  // Return any errors that occurred.
+  if (x.type == LVAL_ERR) { return x; }
+  if (y.type == LVAL_ERR) { return y; }
+
   if (strcmp(op, "+") == 0 || strcmp(op, "add") == 0) {
-    return x + y;
+    return lval_num(x.data.num + y.data.num);
   }
   if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
-    return x - y;
+    return lval_num(x.data.num - y.data.num);
   }
   if (strcmp(op, "*") == 0 || strcmp(op, "mul") == 0) {
-    return x * y;
+    return lval_num(x.data.num * y.data.num);
   }
   if (strcmp(op, "/") == 0 || strcmp(op, "div") == 0) {
-    return x / y;
+    return y.data.num == 0
+      ? lval_err(LERR_DIV_ZERO)
+      : lval_num(x.data.num / y.data.num);
   }
   if (strcmp(op, "%") == 0 || strcmp(op, "mod") == 0) {
-    return x % y;
+    return lval_num(x.data.num % y.data.num);
   }
   if (strcmp(op, "^") == 0 || strcmp(op, "pow") == 0) {
-    return (long)pow(x, y);
+    return lval_num((long)pow(x.data.num, y.data.num));
   }
 
-  if (strcmp(op, "max") == 0) { return x >= y ? x : y; }
-  if (strcmp(op, "min") == 0) { return x < y ? x : y; }
+  if (strcmp(op, "max") == 0) {
+    return x.data.num >= y.data.num ? x : y;
+  }
+  if (strcmp(op, "min") == 0) {
+    return x.data.num < y.data.num ? x : y;
+  }
 
-  return 0;
+  return lval_err(LERR_BAD_OP);
 }
 
-long eval_unary_op(char* op, long x) {
+lval eval_unary_op(char* op, lval x) {
   if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
-    return -x;
+    return lval_num(-x.data.num);
   }
-  return x;
+  return lval_err(LERR_BAD_OP);
 }
 
-long eval(mpc_ast_t* t) {
+lval eval(mpc_ast_t* t) {
   // If node is a number just return it's value.
   if (strstr(t->tag, "number")) {
-    return atoi(t->contents);
+    errno = 0;
+    long x = strtol(t->contents, NULL, 10);
+    return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
   }
 
   char* op = t->children[1]->contents;
 
-  long x = eval(t->children[2]);
+  lval x = eval(t->children[2]);
 
   int i = 3;
   while (strstr(t->children[i]->tag, "expr")) {
@@ -62,6 +123,7 @@ long eval(mpc_ast_t* t) {
   return x;
 }
 
+/* Main application. */
 int main(int argc, char** argv) {
   // Create some parsers.
   mpc_parser_t* Number = mpc_new("number");
@@ -91,8 +153,8 @@ int main(int argc, char** argv) {
 
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r)) {
-      long result = eval(r.output);
-      printf("%li\n", result);
+      lval result = eval(r.output);
+      lval_println(result);
       mpc_ast_delete(r.output);
     } else {
       mpc_err_print(r.error);
