@@ -6,31 +6,78 @@
 #include "mpc.h"
 
 /* Lisp value definitions. */
-enum { LVAL_NUM, LVAL_ERR };
-enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
+enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR };
 
-typedef struct {
+/* lval type definition. */
+typedef struct lval {
   int type;
   union {
+    /* Values */
     long num;
-    int err;
+    char* sym;
+    char* err;
+    /* List of more sexprs. */
+    struct {
+      int count;
+      struct lval** cell;
+    } sexprs;
   } data;
 } lval;
 
-lval lval_num(long x) {
-  lval v;
-  v.type = LVAL_NUM;
-  v.data.num = x;
+/* lval constructors and destructor */
+lval* lval_num(long x) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_NUM;
+  v->data.num = x;
   return v;
 }
 
-lval lval_err(int x) {
-  lval v;
-  v.type = LVAL_ERR;
-  v.data.err = x;
+lval* lval_sym(char* s) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_SYM;
+  v->data.sym = malloc(strlen(s) + 1);
+  strcpy(v->sym, s);
   return v;
 }
 
+lval* lval_err(char* m) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_ERR;
+  v->data.err = malloc(strlen(m) + 1);
+  strcpy(v->data.err, m);
+  return v;
+}
+
+lval* lval_sexpr(void) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_SEXPR;
+  v->data.sexprs.count = 0;
+  v->data.sexprs.cell = NULL;
+  return v;
+}
+
+void lval_del(lval* v) {
+  switch (v->type) {
+    case LVAL_NUM: break;
+
+    case LVAL_ERR: free(v->data.err); break;
+    case LVAL_SYM: free(v->data.sym); break;
+
+    case LVAL_SEXPR:
+      /* Recursively delete sexprs with this one. */
+      for (int i = 0; i < v->data.sexprs.count; i++) {
+        lval_del(v->data.sexprs.cell[i]);
+      }
+      /* Free pointer list. */
+      free v->data.sexprs.cell;
+      break;
+  }
+  /* Free the lval struct itself. */
+  free(v);
+}
+
+
+/* Output */
 void lval_print(lval v) {
   switch (v.type) {
     case LVAL_NUM:
@@ -52,6 +99,7 @@ void lval_print(lval v) {
 }
 
 void lval_println(lval v) { lval_print(v); putchar('\n'); }
+
 
 /* Evaluation logic. */
 lval eval_op(char* op, lval x, lval y) {
@@ -114,7 +162,7 @@ lval eval(mpc_ast_t* t) {
     x = eval_op(op, x, eval(t->children[i]));
     i++;
   }
-  
+
   if (i == 3) {
     // Use unary eval.
     x = eval_unary_op(op, x);
@@ -127,7 +175,8 @@ lval eval(mpc_ast_t* t) {
 int main(int argc, char** argv) {
   // Create some parsers.
   mpc_parser_t* Number = mpc_new("number");
-  mpc_parser_t* Operator = mpc_new("operator");
+  mpc_parser_t* Symbol = mpc_new("symbol");
+  mpc_parser_t* Sexpr = mpc_new("sexpr");
   mpc_parser_t* Expr = mpc_new("expr");
   mpc_parser_t* Lispy = mpc_new("lispy");
 
@@ -135,13 +184,14 @@ int main(int argc, char** argv) {
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                                     \
       number    : /-?[0-9]+(\\.[0-9]+)?/  ;               \
-      operator  : '+' | '-' | '/' | '*' | '%' | '^' |     \
+      symbol    : '+' | '-' | '/' | '*' | '%' | '^' |     \
                   \"add\" | \"sub\" | \"mul\" | \"div\" | \
                   \"mod\" | \"pow\" | \"max\" | \"min\";  \
-      expr      : <number> | '(' <operator> <expr>+ ')' ; \
-      lispy     : /^/ <operator> <expr>+ /$/ ;            \
+      sexpr     : '(' <expr>* ')' ;                       \
+      expr      : <number> | <symbol> | <sexpr> ;         \
+      lispy     : /^/ <expr>* /$/ ;                       \
     ",
-    Number, Operator, Expr, Lispy);
+    Number, Symbol, Sexpr, Expr, Lispy);
 
   puts("Lispy version 0.0.1");
   puts("Press ^C to exit.");
@@ -164,6 +214,6 @@ int main(int argc, char** argv) {
     free(input);
   }
 
-  mpc_cleanup(4, Number, Operator, Expr, Lispy);
+  mpc_cleanup(4, Number, Symbol, Sexpr, Expr, Lispy);
   return 0;
 }
