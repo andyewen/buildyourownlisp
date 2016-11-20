@@ -84,6 +84,29 @@ void lval_del(lval* v) {
   free(v);
 }
 
+lval* lval_pop(lval* v, int i) {
+  /* Find the item at "i" */
+  lval* x = v->data.sexprs.cell[i];
+
+  /* Shift memory after the item at "i" over the top. */
+  memmove(&v->data.sexprs.cell[i], &v->data.sexprs.cell[i + 1],
+          sizeof(lval*) * (v->data.sexprs.count - i - 1));
+
+  /* Decrease count of items in the list. */
+  v->data.sexprs.count--;
+
+  /* Reallocate the memory used. */
+  v->data.sexprs.cell = realloc(v->data.sexprs.cell,
+                                sizeof(lval*) * v->data.sexprs.count);
+  return x;
+}
+
+lval* lval_take(lval* v, int i) {
+  lval* x = lval_pop(v, i);
+  lval_del(v);
+  return x;
+}
+
 
 /* Output */
 void lval_print(lval* v);
@@ -137,77 +160,112 @@ lval* lval_read(mpc_ast_t* t) {
   return x;
 }
 
-
 /* Evaluation logic. */
-/*lval eval_op(char* op, lval x, lval y) {
-  // Return any errors that occurred.
-  if (x.type == LVAL_ERR) { return x; }
-  if (y.type == LVAL_ERR) { return y; }
-
-  if (strcmp(op, "+") == 0 || strcmp(op, "add") == 0) {
-    return lval_num(x.data.num + y.data.num);
-  }
-  if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
-    return lval_num(x.data.num - y.data.num);
-  }
-  if (strcmp(op, "*") == 0 || strcmp(op, "mul") == 0) {
-    return lval_num(x.data.num * y.data.num);
-  }
-  if (strcmp(op, "/") == 0 || strcmp(op, "div") == 0) {
-    return y.data.num == 0
-      ? lval_err(LERR_DIV_ZERO)
-      : lval_num(x.data.num / y.data.num);
-  }
-  if (strcmp(op, "%") == 0 || strcmp(op, "mod") == 0) {
-    return lval_num(x.data.num % y.data.num);
-  }
-  if (strcmp(op, "^") == 0 || strcmp(op, "pow") == 0) {
-    return lval_num((long)pow(x.data.num, y.data.num));
+lval* builtin_op(lval* a, char* op) {
+  /* Ensure all arguments are numbers. */
+  for (int i = 0; i < a->data.sexprs.count; i++) {
+    if (a->data.sexprs.cell[i]->type != LVAL_NUM) {
+      lval_del(a);
+      return lval_err("Cannot operate on non-number!");
+    }
   }
 
-  if (strcmp(op, "max") == 0) {
-    return x.data.num >= y.data.num ? x : y;
-  }
-  if (strcmp(op, "min") == 0) {
-    return x.data.num < y.data.num ? x : y;
-  }
+  /* Pop the first element. */
+  lval* x = lval_pop(a, 0);
 
-  return lval_err(LERR_BAD_OP);
-}
-
-lval eval_unary_op(char* op, lval x) {
-  if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
-    return lval_num(-x.data.num);
-  }
-  return lval_err(LERR_BAD_OP);
-}
-
-lval eval(mpc_ast_t* t) {
-  // If node is a number just return it's value.
-  if (strstr(t->tag, "number")) {
-    errno = 0;
-    long x = strtol(t->contents, NULL, 10);
-    return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
+  /* If no arguments and sub then perform unary negations. */
+  if (a->data.sexprs.count == 0 &&
+      (strcmp(op, "-") == 0 || strcmp(op, "sub")) == 0) {
+    x->data.num = -x->data.num;
   }
 
-  char* op = t->children[1]->contents;
+  /* While there are still elements remaining. */
+  while (a->data.sexprs.count > 0) {
+    /* Pop the next element. */
+    lval* y = lval_pop(a, 0);
+    
+    /* Basic math operators. */
+    if (strcmp(op, "+") == 0 || strcmp(op, "add") == 0) {
+      x->data.num += y->data.num;
+    }
+    if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
+      x->data.num -= y->data.num;
+    }
+    if (strcmp(op, "*") == 0 || strcmp(op, "mul") == 0) {
+      x->data.num *= y->data.num;
+    }
+    if (strcmp(op, "/") == 0 || strcmp(op, "div") == 0) {
+      if (y->data.num == 0) {
+        lval_del(x);
+        lval_del(y);
+        x = lval_err("Division by zero!");
+        break;
+      }
+      x->data.num /= y->data.num;
+    }
 
-  lval x = eval(t->children[2]);
+    /* Extra math operators. */
+    if (strcmp(op, "%") == 0 || strcmp(op, "mod") == 0) {
+      x->data.num %= y->data.num;
+    }
+    if (strcmp(op, "^") == 0 || strcmp(op, "pow") == 0) {
+      x->data.num = (long)pow(x->data.num, y->data.num);
+    }
 
-  int i = 3;
-  while (strstr(t->children[i]->tag, "expr")) {
-    x = eval_op(op, x, eval(t->children[i]));
-    i++;
+    /* Built in functions. */
+    if (strcmp(op, "max") == 0) {
+      if (y->data.num > x->data.num) x->data.num = y->data.num;
+    }
+    if (strcmp(op, "min") == 0) {
+      if (y->data.num < x->data.num) x->data.num = y->data.num;
+    }
+
+    lval_del(y);
   }
 
-  if (i == 3) {
-    // Use unary eval.
-    x = eval_unary_op(op, x);
-  }
-
+  lval_del(a);
   return x;
 }
-*/
+
+lval* lval_eval_sexpr(lval* v);
+
+lval* lval_eval(lval* v) {
+  /* Evaluate s-expressions. */
+  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+  /* All other lval types remain the same. */
+  return v;
+}
+
+lval* lval_eval_sexpr(lval* v) {
+  /* Evaulate children. */
+  for (int i = 0; i < v->data.sexprs.count; i++) {
+    v->data.sexprs.cell[i] = lval_eval(v->data.sexprs.cell[i]);
+  }
+  
+  /* Check for errors. */
+  for (int i = 0; i < v->data.sexprs.count; i++) {
+    if (v->data.sexprs.cell[i]->type == LVAL_ERR) { return lval_take(v, i); }
+  }
+
+  /* Empty expression */
+  if (v->data.sexprs.count == 0) { return v; }
+
+  /* Single expression */
+  if (v->data.sexprs.count == 1) { return lval_take(v, 0); }
+
+  /* Ensure first element is a symbol. */
+  lval* f = lval_pop(v, 0);
+  if (f->type != LVAL_SYM) {
+    lval_del(f);
+    lval_del(v);
+    return lval_err("S-expression doesn't begin with a symbol!");
+  }
+
+  /* Call builtin with operator */
+  lval* result = builtin_op(v, f->data.sym);
+  lval_del(f);
+  return result;
+}
 
 /* Main application. */
 int main(int argc, char** argv) {
@@ -243,7 +301,7 @@ int main(int argc, char** argv) {
     if (mpc_parse("<stdin>", input, Lispy, &r)) {
       /* lval result = eval(r.output); */
       /* lval_println(result); */
-      lval* x = lval_read(r.output);
+      lval* x = lval_eval(lval_read(r.output));
       lval_println(x);
       lval_del(x);
       mpc_ast_delete(r.output);
