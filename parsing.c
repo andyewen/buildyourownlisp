@@ -86,27 +86,29 @@ void lval_del(lval* v) {
 
 
 /* Output */
+void lval_print(lval* v);
+
 void lval_expr_print(lval* v, char open, char close) {
   putchar(open);
-  for (int i = 0; i < v->data.count, i++) {
-    lval_print(v->data.cell[i]);
-    if (i != (v->data.count - 1)) {
-      putchar(" ");
+  for (int i = 0; i < v->data.sexprs.count; i++) {
+    lval_print(v->data.sexprs.cell[i]);
+    if (i != (v->data.sexprs.count - 1)) {
+      putchar(' ');
     }
   }
   putchar(close);
 }
 
 void lval_print(lval* v) {
-  switch (v.type) {
+  switch (v->type) {
     case LVAL_NUM: printf("%li", v->data.num); break;
     case LVAL_ERR: printf("Error: %s", v->data.err); break;
     case LVAL_SYM: printf("%s", v->data.sym); break;
-    case LVAL_SEXPR: lval_expr_print(v, "{", "}"); break;
+    case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
   }
 }
 
-void lval_println(lval v) { lval_print(v); putchar('\n'); }
+void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 
 lval* lval_read_num(mpc_ast_t* t) {
@@ -116,7 +118,7 @@ lval* lval_read_num(mpc_ast_t* t) {
     lval_num(x) : lval_err("Invalid number.");
 }
 
-lval_read(mpc_ast_t* t) {
+lval* lval_read(mpc_ast_t* t) {
   if (strstr(t->tag, "number")) { return lval_read_num(t); }
   if (strstr(t->tag, "symbol")) { return lval_sym(t->contents); }
 
@@ -125,11 +127,11 @@ lval_read(mpc_ast_t* t) {
   if (strstr(t->tag, "sexpr"))  { x = lval_sexpr(); }
 
   for (int i = 0; i < t->children_num; i++) {
-    if (strcmp(t->children[i]->contents, "(") == 0 { continue; }
-    if (strcmp(t->children[i]->contents, ")") == 0 { continue; }
-    if (strcmp(t->children[i]->contents, "{") == 0 { continue; }
-    if (strcmp(t->children[i]->contents, "}") == 0 { continue; }
-    if (strcmp(t->children[i]->tag, "regex") == 0 { continue; }
+    if (strcmp(t->children[i]->contents, "(") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, ")") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, "{") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, "}") == 0) { continue; }
+    if (strcmp(t->children[i]->tag, "regex") == 0)  { continue; }
     x = lval_add(x, lval_read(t->children[i]));
   }
   return x;
@@ -137,7 +139,7 @@ lval_read(mpc_ast_t* t) {
 
 
 /* Evaluation logic. */
-lval eval_op(char* op, lval x, lval y) {
+/*lval eval_op(char* op, lval x, lval y) {
   // Return any errors that occurred.
   if (x.type == LVAL_ERR) { return x; }
   if (y.type == LVAL_ERR) { return y; }
@@ -205,6 +207,7 @@ lval eval(mpc_ast_t* t) {
 
   return x;
 }
+*/
 
 /* Main application. */
 int main(int argc, char** argv) {
