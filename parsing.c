@@ -5,6 +5,9 @@
 #include <editline/history.h>
 #include "mpc.h"
 
+#define LASSERT(args, cond, err) \
+  if (!(cond)) { lval_del(args); return lval_err(err); }
+
 /* Lisp value definitions. */
 enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
@@ -116,6 +119,16 @@ lval* lval_take(lval* v, int i) {
   return x;
 }
 
+lval* lval_join(lval* x, lval* y) {
+  /* For each cell in \"y\" add it to \"x\". */
+  while (y->data.sexprs.count) {
+    x = lval_add(x, lval_pop(y, 0));
+  }
+
+  lval_del(y);
+  return x;
+}
+
 
 /* Output */
 void lval_print(lval* v);
@@ -187,7 +200,7 @@ lval* builtin_op(lval* a, char* op) {
 
   /* If no arguments and sub then perform unary negations. */
   if (a->data.sexprs.count == 0 &&
-      (strcmp(op, "-") == 0 || strcmp(op, "sub")) == 0) {
+      (strcmp(op, "-") == 0) == 0) {
     x->data.num = -x->data.num;
   }
 
@@ -197,16 +210,10 @@ lval* builtin_op(lval* a, char* op) {
     lval* y = lval_pop(a, 0);
     
     /* Basic math operators. */
-    if (strcmp(op, "+") == 0 || strcmp(op, "add") == 0) {
-      x->data.num += y->data.num;
-    }
-    if (strcmp(op, "-") == 0 || strcmp(op, "sub") == 0) {
-      x->data.num -= y->data.num;
-    }
-    if (strcmp(op, "*") == 0 || strcmp(op, "mul") == 0) {
-      x->data.num *= y->data.num;
-    }
-    if (strcmp(op, "/") == 0 || strcmp(op, "div") == 0) {
+    if (strcmp(op, "+") == 0) { x->data.num += y->data.num; }
+    if (strcmp(op, "-") == 0) { x->data.num -= y->data.num; }
+    if (strcmp(op, "*") == 0) { x->data.num *= y->data.num; }
+    if (strcmp(op, "/") == 0) {
       if (y->data.num == 0) {
         lval_del(x);
         lval_del(y);
@@ -217,20 +224,8 @@ lval* builtin_op(lval* a, char* op) {
     }
 
     /* Extra math operators. */
-    if (strcmp(op, "%") == 0 || strcmp(op, "mod") == 0) {
-      x->data.num %= y->data.num;
-    }
-    if (strcmp(op, "^") == 0 || strcmp(op, "pow") == 0) {
-      x->data.num = (long)pow(x->data.num, y->data.num);
-    }
-
-    /* Built in functions. */
-    if (strcmp(op, "max") == 0) {
-      if (y->data.num > x->data.num) x->data.num = y->data.num;
-    }
-    if (strcmp(op, "min") == 0) {
-      if (y->data.num < x->data.num) x->data.num = y->data.num;
-    }
+    if (strcmp(op, "%") == 0) { x->data.num %= y->data.num; }
+    if (strcmp(op, "^") == 0) { x->data.num = (long)pow(x->data.num, y->data.num); }
 
     lval_del(y);
   }
@@ -239,13 +234,78 @@ lval* builtin_op(lval* a, char* op) {
   return x;
 }
 
-lval* lval_eval_sexpr(lval* v);
+lval* builtin_head(lval* a) {
+  /* Check error conditions. */
+  LASSERT(a, a->data.sexprs.count == 1, 
+          "Function \"head\" was passed too many arguments!");
+  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR, 
+          "Function \"head\" was passed incorrect type!");
+  LASSERT(a, a->data.sexprs.cell[0]->data.sexprs.count > 0, 
+          "Function \"head\" was passed {}!");
 
-lval* lval_eval(lval* v) {
-  /* Evaluate s-expressions. */
-  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
-  /* All other lval types remain the same. */
+  lval* v = lval_take(a, 0);
+  while (v->data.sexprs.count > 1) { lval_del(lval_pop(v, 1)); }
   return v;
+}
+
+lval* builtin_tail(lval* a) {
+  /* Check error conditions. */
+  LASSERT(a, a->data.sexprs.count == 1,
+          "Function \"tail\" was passed too many arguments!");
+  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
+          "Function \"tail\" was passed incorrect type!");
+  LASSERT(a, a->data.sexprs.cell[0]->data.sexprs.count > 0,
+          "Function \"tail\" was passed {}!");
+
+  lval* v = lval_take(a, 0);
+  lval_del(lval_pop(v, 0));
+  return v;
+}
+
+lval* builtin_list(lval* a) {
+  a->type = LVAL_QEXPR;
+  return a;
+}
+
+lval* lval_eval(lval* v);
+
+lval* builtin_eval(lval* a) {
+  LASSERT(a, a->data.sexprs.count == 1,
+          "Function \"eval\" was passed too many arguments!");
+  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
+          "Function \"eval\" passed incorrect type!");
+
+  lval* x = lval_take(a, 0);
+  x->type = LVAL_SEXPR;
+  return lval_eval(x);
+}
+
+lval* builtin_join(lval* a) {
+  for (int i = 0; i < a->data.sexprs.count; i++) {
+    LASSERT(a, a->data.sexprs.cell[i]->type == LVAL_QEXPR,
+            "Function \"join\" passed incorrect type.");
+  }
+
+  lval* x = lval_pop(a, 0);
+
+  while (a->data.sexprs.count) {
+    x = lval_join(x, lval_pop(a, 0));
+  }
+
+  lval_del(a);
+  return x;
+}
+
+lval* builtin(lval* a, char* func) {
+  if (strcmp("list", func) == 0) { return builtin_list(a); }
+  if (strcmp("head", func) == 0) { return builtin_head(a); }
+  if (strcmp("tail", func) == 0) { return builtin_tail(a); }
+  if (strcmp("join", func) == 0) { return builtin_join(a); }
+  if (strcmp("eval", func) == 0) { return builtin_eval(a); }
+  if (strstr("+-*/%^", func))    { return builtin_op(a, func); }
+
+  lval_del(a);
+  return lval_err("Unkown function!");
 }
 
 lval* lval_eval_sexpr(lval* v) {
@@ -274,10 +334,18 @@ lval* lval_eval_sexpr(lval* v) {
   }
 
   /* Call builtin with operator */
-  lval* result = builtin_op(v, f->data.sym);
+  lval* result = builtin(v, f->data.sym);
   lval_del(f);
   return result;
 }
+
+lval* lval_eval(lval* v) {
+  /* Evaluate s-expressions. */
+  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+  /* All other lval types remain the same. */
+  return v;
+}
+
 
 /* Main application. */
 int main(int argc, char** argv) {
@@ -294,8 +362,8 @@ int main(int argc, char** argv) {
     "                                                       \
       number    : /-?[0-9]+(\\.[0-9]+)?/  ;                 \
       symbol    : '+' | '-' | '/' | '*' | '%' | '^' |       \
-                  \"add\" | \"sub\" | \"mul\" | \"div\" |   \
-                  \"mod\" | \"pow\" | \"max\" | \"min\";    \
+                  \"list\" | \"head\" | \"tail\" |          \
+                  \"eval\" | \"join\";                      \
       sexpr     : '(' <expr>* ')' ;                         \
       qexpr     : '{' <expr>* '}' ;                         \
       expr      : <number> | <symbol> | <sexpr> | <qexpr> ; \
