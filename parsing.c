@@ -200,7 +200,7 @@ lval* builtin_op(lval* a, char* op) {
 
   /* If no arguments and sub then perform unary negations. */
   if (a->data.sexprs.count == 0 &&
-      (strcmp(op, "-") == 0) == 0) {
+      strcmp(op, "-") == 0) {
     x->data.num = -x->data.num;
   }
 
