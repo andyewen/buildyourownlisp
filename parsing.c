@@ -267,6 +267,25 @@ lval* builtin_list(lval* a) {
   return a;
 }
 
+lval* builtin_cons(lval* a) {
+  LASSERT(a, a->data.sexprs.count == 2,
+          "Function \"cons\" was passed the wrong number of arguments!");
+  LASSERT(a, a->data.sexprs.cell[1]->type == LVAL_QEXPR,
+          "Second argument to \"cons\" was not a q-expression!");
+
+  lval* v = lval_add(lval_qexpr(), lval_pop(a, 0));
+  lval* q = lval_take(a, 0);
+
+  while (q->data.sexprs.count) {
+    lval_add(v, lval_pop(q, 0));
+  }
+
+  lval_del(q);
+
+  return v;
+}
+
+
 lval* lval_eval(lval* v);
 
 lval* builtin_eval(lval* a) {
@@ -301,6 +320,7 @@ lval* builtin(lval* a, char* func) {
   if (strcmp("head", func) == 0) { return builtin_head(a); }
   if (strcmp("tail", func) == 0) { return builtin_tail(a); }
   if (strcmp("join", func) == 0) { return builtin_join(a); }
+  if (strcmp("cons", func) == 0) { return builtin_cons(a); }
   if (strcmp("eval", func) == 0) { return builtin_eval(a); }
   if (strstr("+-*/%^", func))    { return builtin_op(a, func); }
 
@@ -363,7 +383,7 @@ int main(int argc, char** argv) {
       number    : /-?[0-9]+(\\.[0-9]+)?/  ;                 \
       symbol    : '+' | '-' | '/' | '*' | '%' | '^' |       \
                   \"list\" | \"head\" | \"tail\" |          \
-                  \"eval\" | \"join\";                      \
+                  \"eval\" | \"join\" | \"cons\" ;          \
       sexpr     : '(' <expr>* ')' ;                         \
       qexpr     : '{' <expr>* '}' ;                         \
       expr      : <number> | <symbol> | <sexpr> | <qexpr> ; \
