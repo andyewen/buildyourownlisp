@@ -300,6 +300,20 @@ lval* builtin_len(lval* a) {
   return a;
 }
 
+lval* builtin_init(lval* a) {
+  LASSERT(a, a->data.sexprs.count == 1,
+          "Function \"init\" was passed too many arguments!");
+  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
+          "Function \"init\" passed incorrect type!");
+  LASSERT(a, a->data.sexprs.cell[0]->data.sexprs.count > 0, 
+          "Function \"init\" was passed {}!");
+
+  lval* v = lval_take(a, 0);
+  lval_pop(v, v->data.sexprs.count - 1);
+  
+  return v;
+}
+
 lval* lval_eval(lval* v);
 
 lval* builtin_eval(lval* a) {
@@ -335,6 +349,7 @@ lval* builtin(lval* a, char* func) {
   if (strcmp("tail", func) == 0) { return builtin_tail(a); }
   if (strcmp("join", func) == 0) { return builtin_join(a); }
   if (strcmp("cons", func) == 0) { return builtin_cons(a); }
+  if (strcmp("init", func) == 0) { return builtin_init(a); }
   if (strcmp("len", func) == 0) { return builtin_len(a); }
   if (strcmp("eval", func) == 0) { return builtin_eval(a); }
   if (strstr("+-*/%^", func))    { return builtin_op(a, func); }
@@ -399,7 +414,7 @@ int main(int argc, char** argv) {
       symbol    : '+' | '-' | '/' | '*' | '%' | '^' |       \
                   \"list\" | \"head\" | \"tail\" |          \
                   \"eval\" | \"join\" | \"cons\" |          \
-                  \"len\" ;                                 \
+                  \"len\"  | \"init\" ;                     \
       sexpr     : '(' <expr>* ')' ;                         \
       qexpr     : '{' <expr>* '}' ;                         \
       expr      : <number> | <symbol> | <sexpr> | <qexpr> ; \
