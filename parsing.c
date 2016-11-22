@@ -309,7 +309,7 @@ lval* builtin_init(lval* a) {
           "Function \"init\" was passed {}!");
 
   lval* v = lval_take(a, 0);
-  lval_pop(v, v->data.sexprs.count - 1);
+  lval_del(lval_pop(v, v->data.sexprs.count - 1));
   
   return v;
 }
