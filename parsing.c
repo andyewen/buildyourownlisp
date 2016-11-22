@@ -208,7 +208,7 @@ lval* builtin_op(lval* a, char* op) {
   while (a->data.sexprs.count > 0) {
     /* Pop the next element. */
     lval* y = lval_pop(a, 0);
-    
+
     /* Basic math operators. */
     if (strcmp(op, "+") == 0) { x->data.num += y->data.num; }
     if (strcmp(op, "-") == 0) { x->data.num -= y->data.num; }
@@ -396,6 +396,12 @@ lval* lval_eval(lval* v) {
   return v;
 }
 
+/*
+      symbol    : '+' | '-' | '/' | '*' | '%' | '^' |       \
+                  \"list\" | \"head\" | \"tail\" |          \
+                  \"eval\" | \"join\" | \"cons\" |          \
+                  \"len\"  | \"init\" ;                     \
+*/
 
 /* Main application. */
 int main(int argc, char** argv) {
@@ -411,10 +417,7 @@ int main(int argc, char** argv) {
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                                       \
       number    : /-?[0-9]+(\\.[0-9]+)?/  ;                 \
-      symbol    : '+' | '-' | '/' | '*' | '%' | '^' |       \
-                  \"list\" | \"head\" | \"tail\" |          \
-                  \"eval\" | \"join\" | \"cons\" |          \
-                  \"len\"  | \"init\" ;                     \
+      symbol    : /[a-zA-Z0-9_+\\-*\\/\\^%\\\\=<>!&]+/      \
       sexpr     : '(' <expr>* ')' ;                         \
       qexpr     : '{' <expr>* '}' ;                         \
       expr      : <number> | <symbol> | <sexpr> | <qexpr> ; \
