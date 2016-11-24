@@ -299,6 +299,28 @@ lval* lval_read(mpc_ast_t* t) {
 }
 
 /* Evaluation logic. */
+lval* builtin_def(lenv* e, lval* a) {
+  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
+          "Function \"def\" was passed incorrect type.");
+
+  lval* syms = a->data.sexprs.cell[0];
+  for (int i = 0; i < syms->data.sexprs.count; i++) {
+    LASSERT(a, syms->data.sexprs.cell[i]->type == LVAL_SYM,
+            "Function \"def\" cannot define non symbol.");
+  }
+
+  LASSERT(a, syms->data.sexprs.count == a->data.sexprs.count - 1,
+          "Function \"def\"'s lists of symbols and values lengths "
+          "were different!");
+
+  for (int i = 0; i < syms->data.sexprs.count; i++) {
+    lenv_put(e, syms->data.sexprs.cell[i], a->data.sexprs.cell[i + 1]);
+  }
+
+  lval_del(a);
+  return lval_sexpr();
+}
+
 lval* builtin_op(lenv* e, lval* a, char* op) {
   /* Ensure all arguments are numbers. */
   for (int i = 0; i < a->data.sexprs.count; i++) {
@@ -465,6 +487,9 @@ lval* builtin_join(lenv* e, lval* a) {
 
 
 void lenv_add_builtins(lenv* e) {
+  /* Special def function. */
+  lenv_add_builtin(e, "def", builtin_def);
+
   /* List functions */
   lenv_add_builtin(e, "list", builtin_list);
   lenv_add_builtin(e, "head", builtin_head);
