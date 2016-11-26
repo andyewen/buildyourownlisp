@@ -5,8 +5,27 @@
 #include <editline/history.h>
 #include "mpc.h"
 
-#define LASSERT(args, cond, err) \
-  if (!(cond)) { lval_del(args); return lval_err(err); }
+#define LASSERT(args, cond, fmt, ...) \
+  if (!(cond)) { \
+    lval* err = lval_err(fmt, ##__VA_ARGS__); \
+    lval_del(args); \
+    return err; \
+  }
+
+#define LASSERT_ARG_COUNT(v, c, fn) \
+  LASSERT(v, v->data.sexprs.count == c, \
+          "\"%s\" expected %i arguments, got %i.", \
+          fn, c, v->data.sexprs.count);
+
+#define LASSERT_ARG_TYPE(v, arg_num, expect_type, fn) \
+  int arg_type = v->data.sexprs.cell[(arg_num)]->type; \
+  LASSERT(v, arg_type == expect_type, \
+          "\"%s\" expected \"%s\", got \"%s\" for arg %i.", \
+          fn, ltype_name(expect_type), ltype_name(arg_type), arg_num);
+
+#define LASSERT_ARG_NOT_EMPTY_LIST(v, arg_num, fn) \
+  LASSERT(v, v->data.sexprs.cell[arg_num]->data.sexprs.count > 0, \
+          "\"%s\" was passed {}.", fn);
 
 struct lval;
 struct lenv;
@@ -58,11 +77,18 @@ lval* lval_sym(char* s) {
   return v;
 }
 
-lval* lval_err(char* m) {
+lval* lval_err(char* fmt, ...) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_ERR;
-  v->data.err = malloc(strlen(m) + 1);
-  strcpy(v->data.err, m);
+
+  va_list va;
+  va_start(va, fmt);
+
+  v->data.err = malloc(512);
+  vsnprintf(v->data.err, 511, fmt, va);
+  v->data.err = realloc(v->data.err, strlen(v->data.err) + 1);
+  
+  va_end(va);
   return v;
 }
 
@@ -210,7 +236,7 @@ lval* lenv_get(lenv* e, lval* k) {
       return lval_copy(e->vals[i]);
     }
   }
-  return lval_err("Symbol doesn't exist.");
+  return lval_err("Symbol \"%s\" doesn't exist.", k->data.sym);
 }
 
 void lenv_put(lenv* e, lval* k, lval* v) {
@@ -299,9 +325,20 @@ lval* lval_read(mpc_ast_t* t) {
 }
 
 /* Evaluation logic. */
+char* ltype_name(int t) {
+  switch (t) {
+    case LVAL_FUN: return "Function";
+    case LVAL_NUM: return "Number";
+    case LVAL_ERR: return "Error";
+    case LVAL_SYM: return "Symbol";
+    case LVAL_SEXPR: return "S-Expression";
+    case LVAL_QEXPR: return "Q-Expression";
+    default: return "Unknown";
+  }
+}
+
 lval* builtin_def(lenv* e, lval* a) {
-  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
-          "Function \"def\" was passed incorrect type.");
+  LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "def");
 
   lval* syms = a->data.sexprs.cell[0];
   for (int i = 0; i < syms->data.sexprs.count; i++) {
@@ -311,7 +348,8 @@ lval* builtin_def(lenv* e, lval* a) {
 
   LASSERT(a, syms->data.sexprs.count == a->data.sexprs.count - 1,
           "Function \"def\"'s lists of symbols and values lengths "
-          "were different!");
+          "were different. %i symbols and %i values were passed.",
+          syms->data.sexprs.count, a->data.sexprs.count - 1);
 
   for (int i = 0; i < syms->data.sexprs.count; i++) {
     lenv_put(e, syms->data.sexprs.cell[i], a->data.sexprs.cell[i + 1]);
@@ -324,10 +362,7 @@ lval* builtin_def(lenv* e, lval* a) {
 lval* builtin_op(lenv* e, lval* a, char* op) {
   /* Ensure all arguments are numbers. */
   for (int i = 0; i < a->data.sexprs.count; i++) {
-    if (a->data.sexprs.cell[i]->type != LVAL_NUM) {
-      lval_del(a);
-      return lval_err("Cannot operate on non-number!");
-    }
+    LASSERT_ARG_TYPE(a, i, LVAL_NUM, op);
   }
 
   /* Pop the first element. */
@@ -378,12 +413,9 @@ lval* builtin_pow(lenv* e, lval* a) { return builtin_op(e, a, "^"); }
 
 lval* builtin_head(lenv* e, lval* a) {
   /* Check error conditions. */
-  LASSERT(a, a->data.sexprs.count == 1,
-          "Function \"head\" was passed too many arguments!");
-  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
-          "Function \"head\" was passed incorrect type!");
-  LASSERT(a, a->data.sexprs.cell[0]->data.sexprs.count > 0,
-          "Function \"head\" was passed {}!");
+  LASSERT_ARG_COUNT(a, 1, "head");
+  LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "head");
+  LASSERT_ARG_NOT_EMPTY_LIST(a, 0, "head");
 
   lval* v = lval_take(a, 0);
   while (v->data.sexprs.count > 1) { lval_del(lval_pop(v, 1)); }
@@ -392,12 +424,9 @@ lval* builtin_head(lenv* e, lval* a) {
 
 lval* builtin_tail(lenv* e, lval* a) {
   /* Check error conditions. */
-  LASSERT(a, a->data.sexprs.count == 1,
-          "Function \"tail\" was passed too many arguments!");
-  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
-          "Function \"tail\" was passed incorrect type!");
-  LASSERT(a, a->data.sexprs.cell[0]->data.sexprs.count > 0,
-          "Function \"tail\" was passed {}!");
+  LASSERT_ARG_COUNT(a, 1, "tail");
+  LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "tail");
+  LASSERT_ARG_NOT_EMPTY_LIST(a, 0, "tail");
 
   lval* v = lval_take(a, 0);
   lval_del(lval_pop(v, 0));
@@ -410,10 +439,8 @@ lval* builtin_list(lenv* e, lval* a) {
 }
 
 lval* builtin_cons(lenv* e, lval* a) {
-  LASSERT(a, a->data.sexprs.count == 2,
-          "Function \"cons\" was passed the wrong number of arguments!");
-  LASSERT(a, a->data.sexprs.cell[1]->type == LVAL_QEXPR,
-          "Second argument to \"cons\" was not a q-expression!");
+  LASSERT_ARG_COUNT(a, 2, "cons");
+  LASSERT_ARG_TYPE(a, 1, LVAL_QEXPR, "cons");
 
   lval* v = lval_add(lval_qexpr(), lval_pop(a, 0));
   lval* q = lval_take(a, 0);
@@ -428,10 +455,8 @@ lval* builtin_cons(lenv* e, lval* a) {
 }
 
 lval* builtin_len(lenv* e, lval* a) {
-  LASSERT(a, a->data.sexprs.count == 1,
-          "Function \"len\" was passed too many arguments!");
-  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
-          "Function \"len\" passed incorrect type!");
+  LASSERT_ARG_COUNT(a, 1, "len");
+  LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "len");
 
   int n = a->data.sexprs.cell[0]->data.sexprs.count;
   lval_del(lval_pop(a, 0));
@@ -443,12 +468,9 @@ lval* builtin_len(lenv* e, lval* a) {
 }
 
 lval* builtin_init(lenv* e, lval* a) {
-  LASSERT(a, a->data.sexprs.count == 1,
-          "Function \"init\" was passed too many arguments!");
-  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
-          "Function \"init\" passed incorrect type!");
-  LASSERT(a, a->data.sexprs.cell[0]->data.sexprs.count > 0,
-          "Function \"init\" was passed {}!");
+  LASSERT_ARG_COUNT(a, 1, "init");
+  LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "init");
+  LASSERT_ARG_NOT_EMPTY_LIST(a, 0, "init");
 
   lval* v = lval_take(a, 0);
   lval_del(lval_pop(v, v->data.sexprs.count - 1));
@@ -459,10 +481,8 @@ lval* builtin_init(lenv* e, lval* a) {
 lval* lval_eval(lenv* e, lval* v);
 
 lval* builtin_eval(lenv* e, lval* a) {
-  LASSERT(a, a->data.sexprs.count == 1,
-          "Function \"eval\" was passed too many arguments!");
-  LASSERT(a, a->data.sexprs.cell[0]->type == LVAL_QEXPR,
-          "Function \"eval\" passed incorrect type!");
+  LASSERT_ARG_COUNT(a, 1, "eval");
+  LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "eval");
 
   lval* x = lval_take(a, 0);
   x->type = LVAL_SEXPR;
@@ -471,8 +491,7 @@ lval* builtin_eval(lenv* e, lval* a) {
 
 lval* builtin_join(lenv* e, lval* a) {
   for (int i = 0; i < a->data.sexprs.count; i++) {
-    LASSERT(a, a->data.sexprs.cell[i]->type == LVAL_QEXPR,
-            "Function \"join\" passed incorrect type.");
+    LASSERT_ARG_TYPE(a, i, LVAL_QEXPR, "join");
   }
 
   lval* x = lval_pop(a, 0);
