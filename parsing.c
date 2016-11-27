@@ -419,13 +419,13 @@ lval* builtin_var(lenv* e, lval* a, char* func) {
   lval* syms = a->data.sexprs.cell[0];
   for (int i = 0; i < syms->data.sexprs.count; i++) {
     LASSERT(a, syms->data.sexprs.cell[i]->type == LVAL_SYM,
-            "Function \"def\" cannot define non symbol.");
+            "Function \"%s\" cannot define non symbol.", func);
   }
 
   LASSERT(a, syms->data.sexprs.count == a->data.sexprs.count - 1,
-          "Function \"def\"'s lists of symbols and values lengths "
+          "Function \"%s\"'s lists of symbols and values lengths "
           "were different. %i symbols and %i values were passed.",
-          syms->data.sexprs.count, a->data.sexprs.count - 1);
+          func, syms->data.sexprs.count, a->data.sexprs.count - 1);
 
   for (int i = 0; i < syms->data.sexprs.count; i++) {
     if (strcmp(func, "def") == 0) {
@@ -653,6 +653,23 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
     }
 
     lval* sym = lval_pop(f->data.fn.formals, 0);
+    /* Special case to deal with '&' */
+    if (strcmp(sym->data.sym, "&") == 0) {
+      /* Ensure '&' is followed by another symbol. */
+      if (f->data.fn.formals->data.sexprs.count != 1) {
+        lval_del(a);
+        return lval_err("Function format invalid. "
+                        "Symbol \"&\" must be followed by a single symbol.");
+      }
+
+      /* Next formal should be bound to remaining arguments. */
+      lval* nsym = lval_pop(f->data.fn.formals, 0);
+      lenv_put(f->data.fn.env, nsym, builtin_list(e, a));
+      lval_del(sym);
+      lval_del(nsym);
+      break;
+    }
+
     lval* val = lval_pop(a, 0);
 
     lenv_put(f->data.fn.env, sym, val);
@@ -662,6 +679,29 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
   }
 
   lval_del(a);
+
+  /* If "&" remains in formal list, bind to empty list. */
+  if (f->data.fn.formals->data.sexprs.count > 0 &&
+      strcmp(f->data.fn.formals->data.sexprs.cell[0]->data.sym, "&") == 0) {
+    
+    /* Check to ensure that & is not passed invalidly. */
+    if (f->data.fn.formals->data.sexprs.count != 2) {
+      return lval_err("Function format invalid. "
+                      "Symbol \"&\" not followed by a single symbol.");
+    }
+
+    /* Pop and delete "&" symbol. */
+    lval_del(lval_pop(f->data.fn.formals, 0));
+
+    /* Pop next symbol and create empty list. */
+    lval* sym = lval_pop(f->data.fn.formals, 0);
+    lval* val = lval_qexpr();
+
+    /* Bind to environment and delete. */
+    lenv_put(f->data.fn.env, sym, val);
+    lval_del(sym);
+    lval_del(val);
+  }
 
   if (f->data.fn.formals->data.sexprs.count == 0) {
     /* Evaluate if all arguments are bound. */
