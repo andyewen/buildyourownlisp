@@ -471,6 +471,26 @@ lval* builtin_var(lenv* e, lval* a, char* func) {
 lval* builtin_def(lenv* e, lval* a) { return builtin_var(e, a, "def"); }
 lval* builtin_put(lenv* e, lval* a) { return builtin_var(e, a, "="); }
 
+lval* lval_eval(lenv* e, lval* v);
+
+lval* builtin_if(lenv* e, lval* a) {
+  LASSERT_ARG_COUNT(a, 3, "if");
+  LASSERT_ARG_TYPE(a, 0, LVAL_NUM, "if");
+  LASSERT_ARG_TYPE(a, 1, LVAL_QEXPR, "if");
+  LASSERT_ARG_TYPE(a, 2, LVAL_QEXPR, "if");
+
+  lval* exp;
+  if (a->data.sexprs.cell[0]->data.num) {
+    exp = lval_pop(a, 1);
+  } else {
+    exp = lval_pop(a, 2);
+  }
+
+  lval_del(a);
+  exp->type = LVAL_SEXPR;
+  return lval_eval(e, exp);
+}
+
 lval* builtin_lambda(lenv* e, lval* a) {
   LASSERT_ARG_COUNT(a, 2, "\\");
   LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "\\");
@@ -647,8 +667,6 @@ lval* builtin_init(lenv* e, lval* a) {
   return v;
 }
 
-lval* lval_eval(lenv* e, lval* v);
-
 lval* builtin_eval(lenv* e, lval* a) {
   LASSERT_ARG_COUNT(a, 1, "eval");
   LASSERT_ARG_TYPE(a, 0, LVAL_QEXPR, "eval");
@@ -678,6 +696,9 @@ void lenv_add_builtins(lenv* e) {
   /* Special def function. */
   lenv_add_builtin(e, "def", builtin_def);
   lenv_add_builtin(e, "=", builtin_put);
+
+  /* If */
+  lenv_add_builtin(e, "if", builtin_if);
 
   /* Lambda builtin. */
   lenv_add_builtin(e, "\\", builtin_lambda);
