@@ -460,6 +460,29 @@ lval* builtin_lambda(lenv* e, lval* a) {
   return lval_lambda(formals, body);
 }
 
+lval* builtin_cmp(lenv* e, lval* a, char* op) {
+  LASSERT_ARG_COUNT(a, 2, op);
+  LASSERT_ARG_TYPE(a, 0, LVAL_NUM, op);
+  LASSERT_ARG_TYPE(a, 1, LVAL_NUM, op);
+  
+  lval* x = lval_pop(a, 0);
+  lval* y = lval_pop(a, 0);
+
+  if (strcmp(op, ">") == 0) { x->data.num = x->data.num > y->data.num; }
+  if (strcmp(op, "<") == 0) { x->data.num = x->data.num < y->data.num; }
+  if (strcmp(op, "<=") == 0) { x->data.num = x->data.num <= y->data.num; }
+  if (strcmp(op, ">=") == 0) { x->data.num = x->data.num >= y->data.num; }
+
+  lval_del(y);
+  lval_del(a);
+  return x;
+}
+
+lval* builtin_gt(lenv* e, lval* a) { return builtin_cmp(e, a, ">"); }
+lval* builtin_lt(lenv* e, lval* a) { return builtin_cmp(e, a, "<"); }
+lval* builtin_gte(lenv* e, lval* a) { return builtin_cmp(e, a, ">="); }
+lval* builtin_lte(lenv* e, lval* a) { return builtin_cmp(e, a, "<="); }
+
 lval* builtin_op(lenv* e, lval* a, char* op) {
   /* Ensure all arguments are numbers. */
   for (int i = 0; i < a->data.sexprs.count; i++) {
@@ -631,6 +654,12 @@ void lenv_add_builtins(lenv* e) {
   lenv_add_builtin(e, "/", builtin_div);
   lenv_add_builtin(e, "%", builtin_mod);
   lenv_add_builtin(e, "^", builtin_pow);
+
+  /* Comparison functions. */
+  lenv_add_builtin(e, ">", builtin_gt);
+  lenv_add_builtin(e, "<", builtin_lt);
+  lenv_add_builtin(e, ">=", builtin_gte);
+  lenv_add_builtin(e, "<=", builtin_lte);
 }
 
 lval* lval_call(lenv* e, lval* f, lval* a) {
