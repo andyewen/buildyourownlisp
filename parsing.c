@@ -108,7 +108,7 @@ lval* lval_err(char* fmt, ...) {
   v->data.err = malloc(512);
   vsnprintf(v->data.err, 511, fmt, va);
   v->data.err = realloc(v->data.err, strlen(v->data.err) + 1);
-  
+
   va_end(va);
   return v;
 }
@@ -243,6 +243,34 @@ lval* lval_join(lval* x, lval* y) {
   return x;
 }
 
+int lval_eq(lval* x, lval* y) {
+  if (x->type != y->type) { return 0; }
+  switch (x->type) {
+    case LVAL_NUM: return x->data.num == y->data.num;
+
+    case LVAL_ERR: return strcmp(x->data.err, y->data.err) == 0;
+    case LVAL_SYM: return strcmp(x->data.sym, y->data.sym) == 0;
+
+    case LVAL_FUN:
+      if (x->data.fn.builtin || y->data.fn.builtin) {
+        return x->data.fn.builtin == y->data.fn.builtin;
+      }
+      return lval_eq(x->data.fn.formals, y->data.fn.formals) &&
+        lval_eq(x->data.fn.body, y->data.fn.body);
+
+    case LVAL_SEXPR:
+    case LVAL_QEXPR:
+      if (x->data.sexprs.count != y->data.sexprs.count) { return 0; }
+      for (int i = 0; i < x->data.sexprs.count; i++) {
+        if (!lval_eq(x->data.sexprs.cell[i], y->data.sexprs.cell[i])) {
+          return 0;
+        }
+      }
+      return 1;
+    break;
+  }
+  return 0;
+}
 
 /* lenv type definition */
 typedef struct lenv {
@@ -267,13 +295,13 @@ lenv* lenv_copy(lenv* e) {
   n->count = e->count;
   n->syms = malloc(sizeof(char*) * n->count);
   n->vals = malloc(sizeof(lval*) * n->count);
-  
+
   for (int i = 0; i < n->count; i++) {
     n->syms[i] = malloc(strlen(e->syms[i]) + 1);
     strcpy(n->syms[i], e->syms[i]);
     n->vals[i] = lval_copy(e->vals[i]);
   }
-  
+
   return n;
 }
 
@@ -462,9 +490,26 @@ lval* builtin_lambda(lenv* e, lval* a) {
 
 lval* builtin_cmp(lenv* e, lval* a, char* op) {
   LASSERT_ARG_COUNT(a, 2, op);
+  int eq;
+  if (strcmp(op, "==") == 0) {
+    eq = lval_eq(a->data.sexprs.cell[0], a->data.sexprs.cell[1]);
+  }
+  if (strcmp(op, "!=") == 0) {
+    eq = !lval_eq(a->data.sexprs.cell[0], a->data.sexprs.cell[1]);
+  }
+
+  lval_del(a);
+  return lval_num(eq);
+}
+
+lval* builtin_eq(lenv* e, lval* a) { return builtin_cmp(e, a, "=="); }
+lval* builtin_neq(lenv* e, lval* a) { return builtin_cmp(e, a, "!="); }
+
+lval* builtin_ord(lenv* e, lval* a, char* op) {
+  LASSERT_ARG_COUNT(a, 2, op);
   LASSERT_ARG_TYPE(a, 0, LVAL_NUM, op);
   LASSERT_ARG_TYPE(a, 1, LVAL_NUM, op);
-  
+
   lval* x = lval_pop(a, 0);
   lval* y = lval_pop(a, 0);
 
@@ -478,10 +523,10 @@ lval* builtin_cmp(lenv* e, lval* a, char* op) {
   return x;
 }
 
-lval* builtin_gt(lenv* e, lval* a) { return builtin_cmp(e, a, ">"); }
-lval* builtin_lt(lenv* e, lval* a) { return builtin_cmp(e, a, "<"); }
-lval* builtin_gte(lenv* e, lval* a) { return builtin_cmp(e, a, ">="); }
-lval* builtin_lte(lenv* e, lval* a) { return builtin_cmp(e, a, "<="); }
+lval* builtin_gt(lenv* e, lval* a) { return builtin_ord(e, a, ">"); }
+lval* builtin_lt(lenv* e, lval* a) { return builtin_ord(e, a, "<"); }
+lval* builtin_gte(lenv* e, lval* a) { return builtin_ord(e, a, ">="); }
+lval* builtin_lte(lenv* e, lval* a) { return builtin_ord(e, a, "<="); }
 
 lval* builtin_op(lenv* e, lval* a, char* op) {
   /* Ensure all arguments are numbers. */
@@ -656,6 +701,10 @@ void lenv_add_builtins(lenv* e) {
   lenv_add_builtin(e, "^", builtin_pow);
 
   /* Comparison functions. */
+  lenv_add_builtin(e, "==", builtin_eq);
+  lenv_add_builtin(e, "!=", builtin_neq);
+
+  /* Ordering functions. */
   lenv_add_builtin(e, ">", builtin_gt);
   lenv_add_builtin(e, "<", builtin_lt);
   lenv_add_builtin(e, ">=", builtin_gte);
@@ -673,7 +722,7 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
   //   lenv_put(f->data.fn.env, f->data.fn.formals->data.sexprs.cell[i],
   //            a->data.sexprs.cell[i]);
   // }
-  
+
   while (a->data.sexprs.count) {
     if (f->data.fn.formals->data.sexprs.count == 0) {
       lval_del(a);
@@ -695,7 +744,7 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
   if (f->data.fn.formals->data.sexprs.count == 0) {
     /* Evaluate if all arguments are bound. */
     f->data.fn.env->parent = e;
-    return builtin_eval(f->data.fn.env, lval_add(lval_sexpr(), 
+    return builtin_eval(f->data.fn.env, lval_add(lval_sexpr(),
                                          lval_copy(f->data.fn.body)));
   } else {
     /* Return partially evaluated function. */
