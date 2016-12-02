@@ -1,0 +1,11 @@
+# Shorthand for writing a function.
+def {fun} {\ {args body} {def (head args) (\ (tail args) body)})
+
+# Get nth element of a list.
+fun {get_n l n} { if (== n 0) {eval (head l)} {get_n (tail l) (- n 1)}}
+
+# Get last element of a list.
+fun {last l} {if (== (len l) 1) {eval (head l)} {last (tail l)}}
+
+# Linear search list.
+fun {search l v} {if (== l {}) {0} { if (== (eval (head l)) v) {1} {search (tail l) v}}}
