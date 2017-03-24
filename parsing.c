@@ -923,7 +923,8 @@ int main(int argc, char** argv) {
       symbol    : /[a-zA-Z0-9_+\\-*\\/\\^%\\\\=<>!&]+/ ;    \
       sexpr     : '(' <expr>* ')' ;                         \
       qexpr     : '{' <expr>* '}' ;                         \
-      expr      : <number> | <symbol> | <sexpr> | <qexpr> ; \
+      expr      : <number> | <string> | <symbol> |          \
+                  <sexpr> | <qexpr>;                        \
       lispy     : /^/ <expr>* /$/ ;                         \
     ",
     Number, Symbol, String, Sexpr, Qexpr, Expr, Lispy);
